@@ -5,6 +5,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.Log
 import com.yurak.agent.util.DrawableUtils
 import com.yurak.agent.util.TashkentTime
 import java.time.LocalDate
@@ -87,6 +88,8 @@ class LocalUsageStatsManager(private val context: Context) {
             }
         }
 
+        var earliestAppActivityTime = Long.MAX_VALUE
+
         try {
             val events = usageStatsManager.queryEvents(startMs, endMs)
             val event = UsageEvents.Event()
@@ -111,7 +114,6 @@ class LocalUsageStatsManager(private val context: Context) {
                     UsageEvents.Event.SCREEN_NON_INTERACTIVE,
                     UsageEvents.Event.KEYGUARD_SHOWN -> {
                         if (!firstScreenEventSeen) {
-                            // If first event is screen off, the screen was on from startMs to this event
                             firstScreenEventSeen = true
                             totalScreenOnMs += max(0L, time - startMs)
                         } else if (isScreenOn) {
@@ -129,6 +131,9 @@ class LocalUsageStatsManager(private val context: Context) {
                     UsageEvents.Event.ACTIVITY_RESUMED -> {
                         val pkg = event.packageName
                         if (pkg != null && pkg != launcherPackage && pkg !in excludedPackages) {
+                            if (time < earliestAppActivityTime) {
+                                earliestAppActivityTime = time
+                            }
                             if (isScreenOn && currentApp != null && currentApp != pkg) {
                                 closeAppSegment(currentApp!!, time)
                             }
@@ -138,7 +143,6 @@ class LocalUsageStatsManager(private val context: Context) {
                             currentApp = pkg
                             currentAppStart = time
                         } else if (pkg == launcherPackage || pkg in excludedPackages) {
-                            // User returned to Home screen / Launcher
                             if (isScreenOn && currentApp != null) {
                                 closeAppSegment(currentApp!!, time)
                             }
@@ -167,6 +171,48 @@ class LocalUsageStatsManager(private val context: Context) {
             }
         } catch (_: Exception) {}
 
+        // Reconcile past days where Android OS purged raw events older than 24h
+        if (!isToday && earliestAppActivityTime > startMs + 1800_000L) {
+            val prunedEndMs = min(earliestAppActivityTime, endMs)
+            Log.i("YurakStats", "Date $date: Reconciling gap from startMs to $prunedEndMs (first app activity was at $earliestAppActivityTime)")
+            try {
+                val dailyStats = usageStatsManager.queryUsageStats(
+                    UsageStatsManager.INTERVAL_DAILY,
+                    startMs - 86400_000L,
+                    endMs
+                )
+                dailyStats?.forEach { st ->
+                    val pkg = st.packageName
+                    if (pkg != null && pkg != launcherPackage && pkg !in excludedPackages) {
+                        val bucketStart = st.firstTimeStamp
+                        val bucketEnd = st.lastTimeStamp
+                        val overlapStart = max(startMs, bucketStart)
+                        val overlapEnd = min(prunedEndMs, bucketEnd)
+                        val overlapMs = overlapEnd - overlapStart
+                        val bucketDur = bucketEnd - bucketStart
+
+                        if (overlapMs > 0 && bucketDur > 0) {
+                            val ratio = (overlapMs.toDouble() / bucketDur).coerceIn(0.0, 1.0)
+                            // Use totalTimeVisible if available (API 29+), else totalTimeInForeground
+                            val rawTime = if (android.os.Build.VERSION.SDK_INT >= 29 && st.totalTimeVisible > 0L) {
+                                st.totalTimeVisible
+                            } else {
+                                st.totalTimeInForeground
+                            }
+                            val missingMs = (rawTime * ratio).toLong()
+                            if (missingMs > 1000L) {
+                                appDurationsMs[pkg] = (appDurationsMs[pkg] ?: 0L) + missingMs
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("YurakStats", "Reconciliation error: ${e.message}")
+            }
+        }
+
+        Log.i("YurakStats", "Date $date: event-based telegram=${(appDurationsMs["org.telegram.messenger"] ?: 0L) / 1000L}s, total apps=${appDurationsMs.size}")
+
         val appList = mutableListOf<RealAppUsage>()
 
         for ((pkgName, durationMs) in appDurationsMs) {
@@ -194,14 +240,10 @@ class LocalUsageStatsManager(private val context: Context) {
 
         appList.sortByDescending { it.totalSeconds }
 
-        // Total screen time is either the hardware screen-on duration or sum of active apps
-        val totalScreenOnSec = totalScreenOnMs / 1000L
+        // Total screen time in Digital Wellbeing is the sum of active user app usages (excluding lockscreen idle)
         val appsSumSec = appList.sumOf { it.totalSeconds }
-        val finalScreenSeconds = when {
-            totalScreenOnSec > 60L -> max(totalScreenOnSec, appsSumSec)
-            appsSumSec > 0L -> min(appsSumSec, 86400L)
-            else -> 0L
-        }.coerceIn(0L, 86400L)
+        val finalScreenSeconds = min(appsSumSec, 86400L)
+        Log.i("YurakStats", "Date $date: finalScreenSeconds=$finalScreenSeconds (${finalScreenSeconds / 3600}h ${(finalScreenSeconds % 3600) / 60}m)")
 
         return DayUsageSummary(
             date = date,
