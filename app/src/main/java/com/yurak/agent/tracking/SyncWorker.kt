@@ -22,9 +22,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
-// POST /events rejects a batch bigger than this outright (backend's events.schemas.ts,
-// .max(500)) — matches the same cap the Windows agent and the extension both chunk to.
-private const val SYNC_BATCH_SIZE = 500
+// Chunk into small, fast batches of 50 events so each request completes in <2s on mobile/free tier
+private const val SYNC_BATCH_SIZE = 50
 
 // Bounds how large the local queue can get during an extended outage — same backstop as
 // OfflineEventStore's MaxPendingEvents on Windows.
@@ -160,13 +159,22 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     ): Boolean {
         val dao = database.pendingEvents()
         val pending = dao.listAll()
+        android.util.Log.i("SyncWorker", "flushQueue: pending events count = ${pending.size}")
         if (pending.isEmpty()) return true
 
         for (batch in pending.chunked(SYNC_BATCH_SIZE)) {
-            when (apiClient.postEvents(apiToken, batch.map { it.toEventDto() })) {
+            val res = apiClient.postEvents(apiToken, batch.map { it.toEventDto() })
+            android.util.Log.i("SyncWorker", "postEvents result for ${batch.size} items: $res")
+            when (res) {
                 is ApiResult.Ok -> dao.delete(batch)
-                is ApiResult.Unauthorized -> return false
-                is ApiResult.Failure -> return true // stop here; this batch + the rest retry next tick
+                is ApiResult.Unauthorized -> {
+                    android.util.Log.e("SyncWorker", "postEvents unauthorized!")
+                    return false
+                }
+                is ApiResult.Failure -> {
+                    android.util.Log.e("SyncWorker", "postEvents failure: ${res.message}")
+                    return true // stop here; this batch + the rest retry next tick
+                }
             }
         }
         return true

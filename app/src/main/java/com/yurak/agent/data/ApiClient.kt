@@ -74,18 +74,22 @@ class ApiClient(baseUrl: String) {
         val response = try {
             call()
         } catch (e: Exception) {
+            android.util.Log.e("ApiClient", "safeCall exception: ${e.message}", e)
             return ApiResult.Failure(e.message ?: "Network error")
         }
+        android.util.Log.i("ApiClient", "safeCall code: ${response.code()}, isSuccessful: ${response.isSuccessful}")
         return when {
             response.code() == 401 -> ApiResult.Unauthorized
             response.isSuccessful -> {
-                // A 204 (putBattery/putTimezone) has no body to convert — body() is null,
-                // not a real T. Unit is the only T that's ever legitimately absent like this.
                 @Suppress("UNCHECKED_CAST")
                 val value = response.body() ?: (Unit as T)
                 ApiResult.Ok(value)
             }
-            else -> ApiResult.Failure(readError(response))
+            else -> {
+                val err = readError(response)
+                android.util.Log.e("ApiClient", "safeCall error body: $err")
+                ApiResult.Failure(err)
+            }
         }
     }
 
@@ -100,10 +104,10 @@ class ApiClient(baseUrl: String) {
     private fun buildService(baseUrl: String): ApiService {
         val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val http = OkHttpClient.Builder()
-            // POST /events can carry up to 500 segments — generous for that, not for the
-            // small single-row calls sharing this client. See the Windows agent's
-            // ApiClient.RequestTimeout doc comment for the incident this default avoids.
-            .callTimeout(45, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
             .build()
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()

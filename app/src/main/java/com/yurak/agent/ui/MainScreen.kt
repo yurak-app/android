@@ -108,7 +108,12 @@ fun MainScreen(
         syncing = true
         SyncWorker.runOnce(context)
         scope.launch {
-            delay(2000)
+            for (i in 1..30) {
+                delay(1500)
+                val count = withContext(Dispatchers.IO) { container.database.pendingEvents().count() }
+                pendingCount = count
+                if (count == 0) break
+            }
             refreshData()
             syncing = false
         }
