@@ -1,7 +1,6 @@
 package com.yurak.agent.usage
 
 import android.app.usage.UsageEvents
-import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -22,27 +21,16 @@ class LocalUsageStatsManager(private val context: Context) {
         packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
     }
 
-    private val launchablePackages: Set<String> by lazy {
-        try {
-            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            packageManager.queryIntentActivities(intent, 0)
-                .mapNotNull { it.activityInfo?.packageName }
-                .toSet()
-        } catch (_: Exception) {
-            emptySet()
-        }
-    }
-
     /**
-     * System packages that run continuously in background or alongside user apps.
-     * We exclude these from inflating screen time.
+     * System packages that are NOT user applications (keyboards, system UI, launchers).
+     * Filtered out to match Android Digital Wellbeing exactly.
      */
-    private val excludedSystemPackages = setOf(
+    private val excludedPackages = setOf(
         "com.android.systemui",
         "com.google.android.inputmethod.latin",
         "com.touchtype.swiftkey",
-        "com.miui.home",
         "com.google.android.apps.nexuslauncher",
+        "com.miui.home",
         "com.android.launcher3",
         "com.google.android.gms",
         "com.google.android.gsf",
@@ -51,6 +39,10 @@ class LocalUsageStatsManager(private val context: Context) {
 
     /**
      * Retrieves genuine system app usage stats for a specific calendar date in Tashkent timezone (UTC+5).
+     * Follows Android Digital Wellbeing architecture:
+     * - Only measures active foreground Activities when the screen is interactive.
+     * - Does NOT include background audio playback or foreground services (preventing 3h+ background audio bug).
+     * - Bounded strictly to <= 24 hours per day.
      */
     fun getDayStats(date: LocalDate): DayUsageSummary {
         val today = TashkentTime.today()
@@ -79,21 +71,19 @@ class LocalUsageStatsManager(private val context: Context) {
         val appSessionCounts = mutableMapOf<String, Int>()
 
         var totalScreenOnMs = 0L
-        var screenOnStartTime: Long? = null
-        var isScreenOn = true
-        var firstScreenEventProcessed = false
+        var screenOnTime: Long? = null
+        var isScreenOn = false
+        var firstScreenEventSeen = false
 
-        var currentPkg: String? = null
-        var lastForegroundPkg: String? = null
-        var currentStartMs: Long = startMs
+        var currentApp: String? = null
+        var currentAppStart: Long = 0L
 
-        fun recordSegment(pkg: String, fromMs: Long, toMs: Long) {
-            if (pkg in excludedSystemPackages || pkg == launcherPackage) return
-            val clampedFrom = max(fromMs, startMs)
+        fun closeAppSegment(pkg: String, toMs: Long) {
+            val fromMs = max(currentAppStart, startMs)
             val clampedTo = min(toMs, endMs)
-            val durationMs = clampedTo - clampedFrom
-            if (durationMs > 1000L) {
-                appDurationsMs[pkg] = (appDurationsMs[pkg] ?: 0L) + durationMs
+            val dur = clampedTo - fromMs
+            if (dur > 500L) {
+                appDurationsMs[pkg] = (appDurationsMs[pkg] ?: 0L) + dur
             }
         }
 
@@ -106,100 +96,73 @@ class LocalUsageStatsManager(private val context: Context) {
                 val time = event.timeStamp
 
                 when (event.eventType) {
-                    UsageEvents.Event.SCREEN_INTERACTIVE -> {
-                        if (!firstScreenEventProcessed) {
-                            firstScreenEventProcessed = true
-                        }
-                        isScreenOn = true
-                        if (screenOnStartTime == null) {
-                            screenOnStartTime = time
-                        }
-                        // Restore last foreground app when screen turns on
-                        if (currentPkg == null && lastForegroundPkg != null) {
-                            currentPkg = lastForegroundPkg
-                            currentStartMs = time
-                        }
-                    }
-
+                    UsageEvents.Event.SCREEN_INTERACTIVE,
                     UsageEvents.Event.KEYGUARD_HIDDEN -> {
-                        isScreenOn = true
-                        if (screenOnStartTime == null) {
-                            screenOnStartTime = time
-                        }
-                        if (currentPkg == null && lastForegroundPkg != null) {
-                            currentPkg = lastForegroundPkg
-                            currentStartMs = time
+                        firstScreenEventSeen = true
+                        if (!isScreenOn) {
+                            isScreenOn = true
+                            screenOnTime = time
+                            if (currentApp != null) {
+                                currentAppStart = time
+                            }
                         }
                     }
 
-                    UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
-                        if (!firstScreenEventProcessed) {
-                            firstScreenEventProcessed = true
-                            totalScreenOnMs += (time - startMs).coerceAtLeast(0L)
-                        } else if (screenOnStartTime != null) {
-                            totalScreenOnMs += (time - screenOnStartTime!!).coerceAtLeast(0L)
-                            screenOnStartTime = null
+                    UsageEvents.Event.SCREEN_NON_INTERACTIVE,
+                    UsageEvents.Event.KEYGUARD_SHOWN -> {
+                        if (!firstScreenEventSeen) {
+                            // If first event is screen off, the screen was on from startMs to this event
+                            firstScreenEventSeen = true
+                            totalScreenOnMs += max(0L, time - startMs)
+                        } else if (isScreenOn) {
+                            if (currentApp != null) {
+                                closeAppSegment(currentApp!!, time)
+                            }
+                            if (screenOnTime != null) {
+                                totalScreenOnMs += max(0L, time - screenOnTime!!)
+                                screenOnTime = null
+                            }
+                            isScreenOn = false
                         }
-
-                        if (currentPkg != null && isScreenOn) {
-                            recordSegment(currentPkg!!, currentStartMs, time)
-                        }
-                        isScreenOn = false
-                        lastForegroundPkg = currentPkg ?: lastForegroundPkg
-                        currentPkg = null
                     }
 
                     UsageEvents.Event.ACTIVITY_RESUMED -> {
                         val pkg = event.packageName
-                        if (pkg != null) {
-                            val prevPkg = currentPkg
-                            if (prevPkg != null && isScreenOn && prevPkg != pkg) {
-                                recordSegment(prevPkg, currentStartMs, time)
+                        if (pkg != null && pkg != launcherPackage && pkg !in excludedPackages) {
+                            if (isScreenOn && currentApp != null && currentApp != pkg) {
+                                closeAppSegment(currentApp!!, time)
                             }
-                            if (currentPkg != pkg) {
+                            if (currentApp != pkg) {
                                 appSessionCounts[pkg] = (appSessionCounts[pkg] ?: 0) + 1
                             }
-                            currentPkg = pkg
-                            lastForegroundPkg = pkg
-                            currentStartMs = time
+                            currentApp = pkg
+                            currentAppStart = time
+                        } else if (pkg == launcherPackage || pkg in excludedPackages) {
+                            // User returned to Home screen / Launcher
+                            if (isScreenOn && currentApp != null) {
+                                closeAppSegment(currentApp!!, time)
+                            }
+                            currentApp = null
                         }
                     }
 
                     UsageEvents.Event.ACTIVITY_PAUSED -> {
                         val pkg = event.packageName
-                        val active = currentPkg
-                        if (active != null && active == pkg && isScreenOn) {
-                            recordSegment(active, currentStartMs, time)
-                            currentStartMs = time
+                        if (pkg != null && pkg == currentApp && isScreenOn) {
+                            closeAppSegment(pkg, time)
+                            currentApp = null
                         }
                     }
                 }
             }
 
-            if (isToday && isScreenOn && currentPkg != null) {
-                recordSegment(currentPkg!!, currentStartMs, endMs)
-            }
-            if (isToday && isScreenOn && screenOnStartTime != null) {
-                totalScreenOnMs += (endMs - screenOnStartTime!!).coerceAtLeast(0L)
-            }
-        } catch (_: Exception) {}
-
-        // Supplementary: merge with queryUsageStats for any user-facing apps
-        try {
-            val statsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startMs, endMs)
-            for (stat in statsList) {
-                val pkg = stat.packageName ?: continue
-                if (pkg in excludedSystemPackages || pkg == launcherPackage) continue
-
-                val isLaunchable = pkg in launchablePackages || packageManager.getLaunchIntentForPackage(pkg) != null
-                if (!isLaunchable && !appDurationsMs.containsKey(pkg)) continue
-
-                val statSeconds = stat.totalTimeInForeground / 1000L
-                if (statSeconds >= 10L && stat.lastTimeUsed >= startMs) {
-                    val currentSec = (appDurationsMs[pkg] ?: 0L) / 1000L
-                    if (statSeconds > currentSec) {
-                        appDurationsMs[pkg] = statSeconds * 1000L
-                    }
+            // Close trailing active session today
+            if (isToday && isScreenOn) {
+                if (currentApp != null) {
+                    closeAppSegment(currentApp!!, endMs)
+                }
+                if (screenOnTime != null) {
+                    totalScreenOnMs += max(0L, endMs - screenOnTime!!)
                 }
             }
         } catch (_: Exception) {}
@@ -231,10 +194,11 @@ class LocalUsageStatsManager(private val context: Context) {
 
         appList.sortByDescending { it.totalSeconds }
 
+        // Total screen time is either the hardware screen-on duration or sum of active apps
         val totalScreenOnSec = totalScreenOnMs / 1000L
         val appsSumSec = appList.sumOf { it.totalSeconds }
         val finalScreenSeconds = when {
-            totalScreenOnSec > 60L -> max(totalScreenOnSec, appList.firstOrNull()?.totalSeconds ?: 0L)
+            totalScreenOnSec > 60L -> max(totalScreenOnSec, appsSumSec)
             appsSumSec > 0L -> min(appsSumSec, 86400L)
             else -> 0L
         }.coerceIn(0L, 86400L)
