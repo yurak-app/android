@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.yurak.agent.AppContainer
 import com.yurak.agent.data.*
+import com.yurak.agent.ui.usage.AppUsageScreen
 import com.yurak.agent.tracking.SyncWorker
 import com.yurak.agent.tracking.UsageAccess
 import java.time.LocalDate
@@ -177,10 +178,8 @@ fun MainScreen(
                 )
 
                 MainTab.APP_USAGE -> AppUsageScreen(
-                    dailyStats = dailyStats,
-                    rangeStats = rangeStats,
-                    device = currentDevice,
                     userEmail = userEmail,
+                    device = currentDevice,
                     syncing = syncing,
                     onSyncNow = onSyncNow,
                 )
