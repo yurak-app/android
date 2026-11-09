@@ -16,6 +16,12 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Package Visibility for Android 11+ (API 30+) so PackageManager can resolve
+         real app names and icons for apps recorded in UsageStats -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <!-- For the (optional, not yet wired up) goal-limit notification — normal runtime
          prompt, Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

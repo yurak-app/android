@@ -29,3 +29,4 @@ object DrawableUtils {
         return imageBitmap
     }
 }
+

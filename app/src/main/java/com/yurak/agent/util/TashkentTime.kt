@@ -38,7 +38,7 @@ object TashkentTime {
      * Short day label for the chart in Uzbek:
      * Sunday -> Ya, Monday -> Du, Tuesday -> Se, etc.
      */
-    fun shortDayLabel(date: LocalDate): String = when (date.dayOfWeek) {
+    fun shortDayLabel(date: LocalDate): String = when (date.dayOfWeek ?: DayOfWeek.MONDAY) {
         DayOfWeek.SUNDAY -> "Ya"
         DayOfWeek.MONDAY -> "Du"
         DayOfWeek.TUESDAY -> "Se"
@@ -51,7 +51,7 @@ object TashkentTime {
     /**
      * Full day name in Uzbek.
      */
-    fun fullDayName(date: LocalDate): String = when (date.dayOfWeek) {
+    fun fullDayName(date: LocalDate): String = when (date.dayOfWeek ?: DayOfWeek.MONDAY) {
         DayOfWeek.SUNDAY -> "Yakshanba"
         DayOfWeek.MONDAY -> "Dushanba"
         DayOfWeek.TUESDAY -> "Seshanba"
@@ -129,3 +129,4 @@ object TashkentTime {
         }
     }
 }
+

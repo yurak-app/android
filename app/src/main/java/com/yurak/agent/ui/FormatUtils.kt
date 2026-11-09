@@ -3,8 +3,8 @@ package com.yurak.agent.ui
 import java.util.Locale
 
 object FormatUtils {
-    fun formatDuration(totalSeconds: Int): String {
-        if (totalSeconds <= 0) return "0 soniya"
+    fun formatDuration(totalSeconds: Long): String {
+        if (totalSeconds <= 0L) return "0 soniya"
         val hours = totalSeconds / 3600
         val minutes = (totalSeconds % 3600) / 60
         val seconds = totalSeconds % 60
@@ -16,6 +16,8 @@ object FormatUtils {
             else -> "${seconds} soniya"
         }
     }
+
+    fun formatDuration(totalSeconds: Int): String = formatDuration(totalSeconds.toLong())
 
     fun formatBytes(bytes: Long): String {
         if (bytes <= 0) return "0 B"

@@ -63,3 +63,4 @@ fun AppUsageSearchBar(
         singleLine = true,
     )
 }
+

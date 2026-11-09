@@ -24,10 +24,14 @@ import androidx.compose.ui.unit.sp
 import com.yurak.agent.data.DailyAppStatDto
 import com.yurak.agent.data.DailyStatsResponseDto
 import com.yurak.agent.data.DeviceItemDto
+import com.yurak.agent.usage.DayUsageSummary
+import com.yurak.agent.usage.RealAppUsage
+import com.yurak.agent.util.TashkentTime
 
 @Composable
 fun DashboardScreen(
     stats: DailyStatsResponseDto?,
+    localUsage: DayUsageSummary? = null,
     device: DeviceItemDto?,
     userEmail: String,
     hasUsageAccess: Boolean,
@@ -38,7 +42,10 @@ fun DashboardScreen(
     onViewAppUsage: () -> Unit,
     onViewDataUsage: () -> Unit,
 ) {
-    val totalScreenSeconds = stats?.screenSeconds ?: stats?.apps?.sumOf { it.totalSeconds } ?: 0
+    val totalScreenSeconds: Long = localUsage?.totalSeconds?.takeIf { it > 0 }
+        ?: stats?.screenSeconds?.toLong()
+        ?: stats?.apps?.sumOf { it.totalSeconds.toLong() }
+        ?: 0L
     val totalBytes = stats?.totalBytes ?: 0L
     val hotspotBytes = stats?.totalHotspotBytes ?: 0L
     val cellularBytes = stats?.totalCellularBytes ?: 0L
@@ -253,8 +260,23 @@ fun DashboardScreen(
             }
         }
 
-        val topApps = stats?.apps?.take(5) ?: emptyList()
-        if (topApps.isEmpty()) {
+        val localTopApps = localUsage?.apps?.take(5) ?: emptyList()
+        val remoteTopApps = stats?.apps?.take(5) ?: emptyList()
+
+        if (localTopApps.isNotEmpty()) {
+            val maxSeconds = localTopApps.firstOrNull()?.totalSeconds?.coerceAtLeast(1) ?: 1L
+            items(localTopApps) { app ->
+                LocalAppRowItem(app = app, maxSeconds = maxSeconds)
+            }
+        } else if (remoteTopApps.isNotEmpty()) {
+            val maxSeconds = remoteTopApps.firstOrNull()?.totalSeconds?.coerceAtLeast(1) ?: 1
+            items(remoteTopApps) { app ->
+                AppUsageRowItem(
+                    app = app,
+                    maxSeconds = maxSeconds,
+                )
+            }
+        } else {
             item {
                 Card(
                     shape = RoundedCornerShape(14.dp),
@@ -274,14 +296,6 @@ fun DashboardScreen(
                         )
                     }
                 }
-            }
-        } else {
-            val maxSeconds = topApps.firstOrNull()?.totalSeconds?.coerceAtLeast(1) ?: 1
-            items(topApps) { app ->
-                AppUsageRowItem(
-                    app = app,
-                    maxSeconds = maxSeconds,
-                )
             }
         }
 
@@ -464,6 +478,99 @@ fun AppUsageRowItem(app: DailyAppStatDto, maxSeconds: Int) {
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(3.dp))
                         .background(YurakCrimson)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LocalAppRowItem(app: RealAppUsage, maxSeconds: Long) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = YurakCardBg),
+        border = BorderStroke(1.dp, YurakBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (app.iconBitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = app.iconBitmap,
+                        contentDescription = app.appName,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp)),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(YurakCrimson),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = app.appName.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = app.appName,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = YurakSlate,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = app.categoryBadge.label,
+                        style = MaterialTheme.typography.bodySmall.copy(color = YurakMuted),
+                    )
+                }
+
+                Text(
+                    text = TashkentTime.formatDuration(app.totalSeconds),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = YurakSlate,
+                    ),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val progress = (app.totalSeconds.toFloat() / maxSeconds.toFloat()).coerceIn(0.05f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFFF1F5F9)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(YurakCrimson),
                 )
             }
         }

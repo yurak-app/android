@@ -47,3 +47,4 @@ data class WeekUsageSummary(
     val totalSeconds: Long,
     val days: List<DayUsageSummary>,
 )
+

@@ -14,6 +14,11 @@ import androidx.compose.ui.unit.dp
 import com.yurak.agent.AppContainer
 import com.yurak.agent.data.*
 import com.yurak.agent.ui.usage.AppUsageScreen
+import com.yurak.agent.usage.DayUsageSummary
+import com.yurak.agent.usage.LocalUsageStatsManager
+import com.yurak.agent.util.TashkentTime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.yurak.agent.tracking.SyncWorker
 import com.yurak.agent.tracking.UsageAccess
 import java.time.LocalDate
@@ -47,13 +52,22 @@ fun MainScreen(
     var hasUsageAccess by remember { mutableStateOf(UsageAccess.hasAccess(context)) }
     var syncing by remember { mutableStateOf(false) }
 
-    val todayStr = remember { LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE) }
-    val weekAgoStr = remember { LocalDate.now().minusDays(6).format(DateTimeFormatter.ISO_LOCAL_DATE) }
+    val localUsageManager = remember { LocalUsageStatsManager(context) }
+    var localTodaySummary by remember { mutableStateOf<DayUsageSummary?>(null) }
+
+    val todayStr = remember { TashkentTime.today().format(DateTimeFormatter.ISO_LOCAL_DATE) }
+    val weekAgoStr = remember { TashkentTime.today().minusDays(6).format(DateTimeFormatter.ISO_LOCAL_DATE) }
 
     // Fetch initial data
     val refreshData: () -> Unit = {
-        if (apiToken.isNotEmpty()) {
-            scope.launch {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val summary = localUsageManager.getDayStats(TashkentTime.today())
+                withContext(Dispatchers.Main) {
+                    localTodaySummary = summary
+                }
+            }
+            if (apiToken.isNotEmpty()) {
                 val dailyRes = container.apiClient.getDailyStats(apiToken, todayStr)
                 if (dailyRes is ApiResult.Ok) {
                     dailyStats = dailyRes.value
@@ -166,6 +180,7 @@ fun MainScreen(
             when (selectedTab) {
                 MainTab.DASHBOARD -> DashboardScreen(
                     stats = dailyStats,
+                    localUsage = localTodaySummary,
                     device = currentDevice,
                     userEmail = userEmail,
                     hasUsageAccess = hasUsageAccess,

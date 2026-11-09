@@ -3,6 +3,7 @@ package com.yurak.agent.ui.usage
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,7 +48,9 @@ fun AppUsageListItem(
         colors = CardDefaults.cardColors(containerColor = YurakCardBg),
         border = BorderStroke(1.dp, YurakBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Row(
             modifier = Modifier
@@ -96,9 +99,20 @@ fun AppUsageListItem(
                     overflow = TextOverflow.Ellipsis,
                 )
 
+                Text(
+                    text = app.packageName,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = YurakMuted,
+                        fontSize = 11.sp,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier.padding(top = 3.dp),
                 ) {
                     Text(
                         text = TashkentTime.formatDuration(app.totalSeconds),
@@ -137,3 +151,4 @@ fun AppUsageListItem(
         }
     }
 }
+
