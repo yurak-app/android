@@ -1,130 +1,119 @@
-# Yurak Android Agent
+<div align="center">
 
-A Kotlin/Jetpack Compose app that tracks per-app foreground time (plus screen lock/unlock,
-battery, and timezone) and syncs it to the Yurak backend. Same philosophy as the Windows
-agent and the browser extension: **sign-in only, no dashboards** — you create your account
-on the Yurak website, and every view of the data lives there.
+# ❤️ Yurak Android App & Agent
 
-## Why this stack
+**Native Kotlin + Jetpack Compose application for tracking application usage, system events, and network data traffic with a modern 4-tab dashboard.**
 
-| Piece | Choice | Why |
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-Material_3-4285F4?logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Android](https://img.shields.io/badge/Android-9.0%2B_(API_28%2B)-3DDC84?logo=android&logoColor=white)](https://developer.android.com/)
+[![WorkManager](https://img.shields.io/badge/WorkManager-Periodic_Sync-FF8800?logo=android&logoColor=white)](https://developer.android.com/topic/libraries/architecture/workmanager)
+
+[Features](#-features--screens) • [Architecture](#-architecture--design) • [Build & Install](#-build--installation)
+
+</div>
+
+---
+
+## 🌟 Overview
+
+The **Yurak Android App** is both a lightweight, battery-efficient tracking agent and an interactive personal analytics dashboard. It monitors application foreground time, screen locks/unlocks, battery status, and network data usage, while offering a full-featured Compose UI matching the web platform.
+
+---
+
+## 📱 Features & Screens
+
+### 1. 🏠 Dashboard (`Bosh sahifa`)
+- Real-time KPI cards: Today's screen time, total data traffic, and connected device pill.
+- Live battery level indicator with charging state.
+- Top active applications list for the day.
+- One-tap **"Sinxronlash" (Sync now)** button with instant background flush.
+
+### 2. 📊 App Usage (`Ilovalar`)
+- **Period Selectors**: Switch between `Kun` (Daily), `Hafta` (Weekly), and `Oy` (Monthly) analytics.
+- **Interactive 7-Day Stacked Bar Chart**: Highlighting daily screen time across categories with dynamic day selection.
+- **Week Date Range Stepper**: Navigate back and forth between weeks.
+- **Search & Filter Chips**: Search apps by name and filter by platform (`Barchasi`, `Mobile`, `Desktop`).
+- Detailed app breakdown showing total duration and session counts.
+
+### 3. 🌐 Data Traffic (`Trafik`)
+- Hero metric card showing total internet consumption.
+- Dedicated category breakdown cards:
+  - 📶 **Wi-Fi**
+  - 📡 **Mobil Internet (Cellular)**
+  - 🔄 **Hotspot (Tarqatish)**
+  - 💻 **Desktop Ma'lumotlari**
+- Per-application internet data usage list.
+
+### 4. 👤 Profile & Devices (`Profil`)
+- User avatar, name, and registered email address.
+- Linked devices list with active status and last-seen timestamps.
+- System permissions monitor (Usage Access, Notifications).
+- Secure sign-out with credential clearing.
+
+### 🎨 5. Clean Light & Crimson UI
+- High-contrast pure white card background (`#FFFFFF`) with soft borders (`#E2E8F0`).
+- Deep Slate typography (`#0F172A`) ensuring readability under all system lighting conditions.
+- Signature **Yurak Crimson** (`#E11D48`) and vibrant accents.
+
+---
+
+## 🏗 Architecture & Design
+
+| Component | Technology | Role |
 |---|---|---|
-| Language | Kotlin | Modern Android standard |
-| UI | Jetpack Compose | Two screens (login, status) — Compose keeps that small |
-| Background work | WorkManager, periodic (~15 min) | The OS-enforced floor for periodic work anyway, matching the Windows agent's and backend's own sync cadence |
-| Usage tracking | `UsageStatsManager` | See below |
-| Local durable queue | Room (SQLite) | Android-idiomatic version of the Windows agent's `OfflineEventStore` / the extension's storage queue — write immediately, delete only after a confirmed sync |
-| API client | Retrofit + OkHttp + kotlinx.serialization | Typed, standard |
-| Credential storage | EncryptedSharedPreferences | Android's equivalent of the Windows agent's DPAPI-encrypted `credentials.dat` |
-| DI | None (manual wiring, see `AppContainer.kt`) | App's too small to earn Hilt/Dagger — same call made for the Windows agent and the extension |
-| `minSdk` | 28 (Android 9, 2018+) | See below |
+| **Language** | Kotlin | Standard Android language |
+| **UI Framework** | Jetpack Compose + Material 3 | Declarative, modern UI shell |
+| **Activity Tracking** | `UsageStatsManager` | Reads OS-level app switch events without continuous polling |
+| **Background Sync** | `WorkManager` (Periodic ~15 min) | Reliable, battery-friendly scheduled sync surviving device reboots |
+| **API Client** | OkHttp + Retrofit + kotlinx.serialization | REST API client connecting to Yurak Backend |
+| **Credentials** | `EncryptedSharedPreferences` | Hardware-backed secure token storage |
+| **Local Settings** | `SharedPreferences` | Stores server URL (defaults to `https://yurak-backend.onrender.com`) |
 
-### No foreground service, no continuous polling
+### 🔋 Battery-Friendly Event Reconstruction
+Unlike traditional tracking tools that poll the foreground window every few seconds, Yurak Android relies on Android's native `UsageStatsManager` event log:
+- **`MOVE_TO_FOREGROUND`**: Records app switches.
+- **`SCREEN_NON_INTERACTIVE`**: Records screen-off as `lock` events.
+- **`KEYGUARD_HIDDEN`**: Records screen unlock as `unlock` events.
+- **No Foreground Service or Notification Spam**: Runs quietly in the background without draining battery.
 
-This is the one real design difference from the Windows agent. Windows has to *poll*
-(`GetForegroundWindow` every 1.5s) because Windows doesn't keep app-switch history for you.
-Android already does: `UsageStatsManager` maintains an event log —
-`MOVE_TO_FOREGROUND`/`MOVE_TO_BACKGROUND` (app switches), `SCREEN_INTERACTIVE`/
-`SCREEN_NON_INTERACTIVE` (screen on/off), `KEYGUARD_SHOWN`/`KEYGUARD_HIDDEN` (lock/unlock).
-`SyncWorker` (`tracking/SyncWorker.kt`) runs every ~15 minutes and reads that log since the
-last checkpoint (`tracking/UsageEventReader.kt` reconstructs segments from it) — no
-continuously-running service, no persistent notification, nothing polling in real time.
-`minSdk 28` is specifically because `SCREEN_NON_INTERACTIVE`/`KEYGUARD_HIDDEN` were added in
-API 28; lock/unlock tracking wouldn't be reliably available on anything older.
+---
 
-Talks to the **exact same backend contract** the Windows agent and extension use —
-`POST /auth/login` with `device: { platform: "android", name }`, the same `POST /events`
-shape (see `data/Dtos.kt`, deliberately mirroring the Windows agent's `Models/Dtos.cs` and
-the extension's `types.ts`). No backend changes needed.
+## 🛠 Build & Installation
 
-## What it tracks, and how
+### 1. Prerequisites
+- Android Studio Ladybug / Meerkat or newer
+- JDK 17 or JDK 21
+- Android SDK (API 28+)
 
-`UsageEventReader` walks the event log and turns it into segments:
+### 2. Build Debug APK via Command Line
+```bash
+# Navigate to the android directory
+cd android
 
-- **App switches** (`MOVE_TO_FOREGROUND`) close the current segment and open a new one —
-  only when the *package* actually changes, not on every internal activity-to-activity
-  navigation within one app (there's no handling of `MOVE_TO_BACKGROUND`/`ACTIVITY_PAUSED`
-  at all, deliberately — see the doc comment in the reader).
-- **Screen off** (`SCREEN_NON_INTERACTIVE`) closes whatever's open and is recorded as a
-  `lock` system event.
-- **Keyguard dismissed** (`KEYGUARD_HIDDEN`) is recorded as an `unlock` system event.
-  `SCREEN_INTERACTIVE` (the screen waking up, possibly still to a lock screen) and
-  `KEYGUARD_SHOWN` are deliberately not separately emitted — "unlock" means genuinely
-  usable again, not just the display turning on.
-- The launcher/home screen is tracked as its own pseudo-app (identifier `"home"`, matching
-  how the Windows agent treats the desktop/taskbar) rather than under its raw package name
-  or dropped entirely.
-- A segment that's still open at the end of a read (the app currently in the foreground)
-  stays open — its true end isn't known yet, so it's persisted (`tracking/TrackingState.kt`)
-  and picked up by the *next* run, not guessed at or cut short.
-- A session (`sessionStart`, feeding per-app session counts) starts on every genuine app
-  switch and every return from a locked screen — never on an internal navigation within the
-  same app.
+# Build the debug APK
+./gradlew assembleDebug
+```
+The compiled APK will be generated at:
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-### Idle detection is coarser than Windows' — on purpose, not by oversight
+### 3. Install on Connected Device
+With USB Debugging enabled on your Android device:
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-Windows can ask "how long since any keyboard/mouse input, system-wide" (`GetLastInputInfo`)
-regardless of which app is focused. Android has no equivalent for third-party apps — there's
-no system-wide "last touch" timestamp available without an Accessibility Service (a much
-heavier, more sensitive permission than anything else this app asks for, and arguably
-overkill for a personal tracker). The practical proxy used here is **screen off** — if the
-screen is on and an app is in the foreground, it counts as active, the same way Android's
-own Digital Wellbeing effectively works. There's no configurable "idle after N seconds while
-the screen stays on" setting, because there's no real signal behind it to configure.
+---
 
-## Permissions — and what each one costs the "login-only" design
+## 🔐 Permissions Required
 
-- **`PACKAGE_USAGE_STATS`** ("Usage Access") — the load-bearing one. Unlike a normal runtime
-  permission, this can't be requested via a dialog; `StatusScreen` deep-links to
-  `Settings.ACTION_USAGE_ACCESS_SETTINGS` and you toggle it on by hand, then come back. This
-  adds a real third step beyond login (log in → grant Usage Access), but doesn't touch the
-  account model at all — still sign-in only, still no register screen anywhere in the app.
-- **`POST_NOTIFICATIONS`** (Android 13+) — declared for a future goal-limit notification
-  (mirroring the Windows agent's toast) that isn't wired up yet. Normal, low-friction runtime
-  prompt when it is.
-- **No `FOREGROUND_SERVICE`, no `RECEIVE_BOOT_COMPLETED`** — the event-log approach needs
-  neither; WorkManager's own periodic-work scheduling survives reboots on its own.
-- **Not a permission, but worth knowing**: aggressive OEM battery optimization (Samsung,
-  Xiaomi, etc.) can delay WorkManager's periodic runs further than stock Android would. It
-  copes (reschedules rather than silently dying), but sync could lag more on some phones.
+- **`PACKAGE_USAGE_STATS` (Usage Access)**: Required to read foreground application switch events. The app prompts and deep-links directly to Android Settings on first launch.
+- **`INTERNET` & `ACCESS_NETWORK_STATE`**: Required to sync data with the backend API.
+- **`READ_NETWORK_USAGE_HISTORY`**: Required to calculate Wi-Fi and mobile data consumption.
 
-## Running it
+---
 
-You'll need **Android Studio** (bundles the SDK, Gradle, everything) — this project has no
-Gradle wrapper checked in; Android Studio generates one the first time you open it (or run
-`gradle wrapper` yourself if you have a standalone Gradle install).
-
-1. `File → Open` → this `android/` folder.
-2. Let Gradle sync (first time only, downloads dependencies).
-3. Run on an emulator (Device Manager can create one) or a physical phone with
-   Developer Options → USB debugging on, plugged in via USB.
-   - **Emulator**: the default backend URL (`http://10.0.2.2:4000`, in Settings) is the
-     emulator's own alias for "the host machine's localhost" — works out of the box against
-     a backend running on your dev machine.
-   - **Physical device**: `10.0.2.2` doesn't mean anything to a real phone. Set the backend
-     URL to your dev machine's actual LAN IP (e.g. `http://192.168.1.23:4000`) instead, and
-     make sure the phone's on the same network.
-4. First launch: login screen (email + password — no register option, per plan.md). After
-   logging in, the status screen prompts for Usage Access if it isn't granted yet.
-
-CLI equivalent of step 3 (with a device/emulator already connected):
-`./gradlew installDebug` from this directory.
-
-## Known gaps
-
-- **No icon reporting, location, or system-info reporting** — the Windows agent grew these
-  organically over time; they were never part of Phase 1's actual scope (idle/screen/lock
-  detection, session counts), so this first pass leaves them out rather than importing scope
-  creep from a different platform. Same reasoning for goal-limit notifications.
-- **Logout doesn't attempt a final sync first** — unlike the Windows agent and the extension,
-  which both try to flush whatever's queued before discarding it. Doable (enqueue a sync,
-  await its completion via WorkManager's `WorkInfo` flow, then clear), just not wired up in
-  this pass; worst case today is losing whatever accumulated since the last successful sync
-  (bounded by the ~15-minute interval) when you explicitly log out.
-- **Not build-verified here** — this environment has no Android SDK/Gradle. Written and
-  reviewed carefully, but a real first build/run needs to happen in Android Studio.
-- **Launcher icon** is the same generated placeholder mark used for the Windows agent's
-  scaffold assets and the extension's toolbar icon (downscaled from `frontend/public/logo.png`)
-  — fine for now, swap `app/src/main/res/mipmap-*/ic_launcher*.png` for real branding later.
-#   a n d r o i d  
- 
+## 📄 License
+MIT © [Yurak Team](https://github.com/yurak-app)
