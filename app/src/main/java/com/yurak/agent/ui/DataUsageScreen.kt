@@ -22,18 +22,29 @@ import androidx.compose.ui.unit.sp
 import com.yurak.agent.data.DailyAppStatDto
 import com.yurak.agent.data.DailyStatsResponseDto
 import com.yurak.agent.data.RangeStatsResponseDto
+import com.yurak.agent.usage.DayTrafficSummary
+import com.yurak.agent.usage.LocalAppTraffic
 
 @Composable
 fun DataUsageScreen(
     dailyStats: DailyStatsResponseDto?,
     rangeStats: RangeStatsResponseDto?,
+    localTraffic: DayTrafficSummary? = null,
     syncing: Boolean,
     onSyncNow: () -> Unit,
 ) {
-    val totalBytes = dailyStats?.totalBytes ?: 0L
-    val cellularBytes = dailyStats?.totalCellularBytes ?: 0L
-    val wifiBytes = dailyStats?.totalWifiBytes ?: 0L
-    val hotspotBytes = dailyStats?.totalHotspotBytes ?: 0L
+    val totalBytes = localTraffic?.totalBytes?.takeIf { it > 0L }
+        ?: dailyStats?.totalBytes
+        ?: 0L
+    val cellularBytes = localTraffic?.cellularBytes?.takeIf { it > 0L }
+        ?: dailyStats?.totalCellularBytes
+        ?: 0L
+    val wifiBytes = localTraffic?.wifiBytes?.takeIf { it > 0L }
+        ?: dailyStats?.totalWifiBytes
+        ?: 0L
+    val hotspotBytes = localTraffic?.hotspotBytes?.takeIf { it > 0L }
+        ?: dailyStats?.totalHotspotBytes
+        ?: 0L
 
     val allApps = dailyStats?.apps ?: emptyList()
     val desktopBytes = allApps
@@ -43,13 +54,18 @@ fun DataUsageScreen(
         .filter { (it.platform ?: "") == "extension" }
         .sumOf { it.totalBytes }
 
+    val localApps = localTraffic?.apps ?: emptyList()
     val appsWithData = remember(allApps) {
         allApps
             .filter { it.totalBytes > 0 }
             .sortedByDescending { it.totalBytes }
     }
 
-    val maxAppBytes = appsWithData.firstOrNull()?.totalBytes?.coerceAtLeast(1L) ?: 1L
+    val maxAppBytes = if (localApps.isNotEmpty()) {
+        localApps.firstOrNull()?.totalBytes?.coerceAtLeast(1L) ?: 1L
+    } else {
+        appsWithData.firstOrNull()?.totalBytes?.coerceAtLeast(1L) ?: 1L
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -237,14 +253,23 @@ fun DataUsageScreen(
                         color = YurakSlate,
                     ),
                 )
+                val totalAppCount = if (localApps.isNotEmpty()) localApps.size else appsWithData.size
                 Text(
-                    text = "${appsWithData.size} ta ilova",
+                    text = "$totalAppCount ta ilova",
                     style = MaterialTheme.typography.bodySmall.copy(color = YurakMuted),
                 )
             }
         }
 
-        if (appsWithData.isEmpty()) {
+        if (localApps.isNotEmpty()) {
+            items(localApps) { app ->
+                LocalDateDataUsageRow(app = app, maxBytes = maxAppBytes)
+            }
+        } else if (appsWithData.isNotEmpty()) {
+            items(appsWithData) { app ->
+                AppDataUsageRow(app = app, maxBytes = maxAppBytes)
+            }
+        } else {
             item {
                 Card(
                     shape = RoundedCornerShape(14.dp),
@@ -265,9 +290,97 @@ fun DataUsageScreen(
                     }
                 }
             }
-        } else {
-            items(appsWithData) { app ->
-                AppDataUsageRow(app = app, maxBytes = maxAppBytes)
+        }
+    }
+}
+
+@Composable
+fun LocalDateDataUsageRow(app: LocalAppTraffic, maxBytes: Long) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = YurakCardBg),
+        border = BorderStroke(1.dp, YurakBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (app.iconBitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = app.iconBitmap,
+                        contentDescription = app.appName,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp)),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(YurakSky),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = app.appName.take(1).uppercase(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = app.appName,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = YurakSlate,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = app.packageName,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = YurakMuted,
+                            fontSize = 11.sp,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Text(
+                    text = FormatUtils.formatBytes(app.totalBytes),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = YurakSlate,
+                    ),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val progress = (app.totalBytes.toFloat() / maxBytes.toFloat()).coerceIn(0.05f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFFF1F5F9)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF0284C7)),
+                )
             }
         }
     }

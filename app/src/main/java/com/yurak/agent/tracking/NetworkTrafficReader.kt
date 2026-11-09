@@ -50,7 +50,7 @@ class NetworkTrafficReader(
         }
 
         // 2. Wi-Fi
-        querySummary(manager, ConnectivityManager.TYPE_WIFI, "", startTime, safeEndTime) { uid, rx, tx ->
+        querySummary(manager, ConnectivityManager.TYPE_WIFI, null, startTime, safeEndTime) { uid, rx, tx ->
             val stats = uidMap.getOrPut(uid) { TempStats() }
             if (uid == -5 || uid == NetworkStats.Bucket.UID_TETHERING) {
                 stats.hotspotBytes += (rx + tx)

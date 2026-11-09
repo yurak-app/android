@@ -45,7 +45,12 @@ fun AppUsageScreen(
     var anchorDate by remember { mutableStateOf(TashkentTime.today()) }
 
     var weekStats by remember { mutableStateOf<WeekUsageSummary?>(null) }
-    var selectedDayIndex by remember { mutableStateOf(0) }
+    val initialDayIdx = remember {
+        val today = TashkentTime.today()
+        val days = TashkentTime.getWeekDays(today)
+        days.indexOf(today).coerceAtLeast(0)
+    }
+    var selectedDayIndex by remember { mutableStateOf(initialDayIdx) }
 
     var filter by remember { mutableStateOf(AppFilter.BARCHASI) }
     var searchQuery by remember { mutableStateOf("") }

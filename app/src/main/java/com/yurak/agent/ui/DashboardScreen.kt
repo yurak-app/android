@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.yurak.agent.data.DailyAppStatDto
 import com.yurak.agent.data.DailyStatsResponseDto
 import com.yurak.agent.data.DeviceItemDto
+import com.yurak.agent.usage.DayTrafficSummary
 import com.yurak.agent.usage.DayUsageSummary
 import com.yurak.agent.usage.RealAppUsage
 import com.yurak.agent.util.TashkentTime
@@ -32,6 +33,7 @@ import com.yurak.agent.util.TashkentTime
 fun DashboardScreen(
     stats: DailyStatsResponseDto?,
     localUsage: DayUsageSummary? = null,
+    localTraffic: DayTrafficSummary? = null,
     device: DeviceItemDto?,
     userEmail: String,
     hasUsageAccess: Boolean,
@@ -46,9 +48,9 @@ fun DashboardScreen(
         ?: stats?.screenSeconds?.toLong()
         ?: stats?.apps?.sumOf { it.totalSeconds.toLong() }
         ?: 0L
-    val totalBytes = stats?.totalBytes ?: 0L
-    val hotspotBytes = stats?.totalHotspotBytes ?: 0L
-    val cellularBytes = stats?.totalCellularBytes ?: 0L
+    val totalBytes = localTraffic?.totalBytes?.takeIf { it > 0 } ?: (stats?.totalBytes ?: 0L)
+    val hotspotBytes = localTraffic?.hotspotBytes?.takeIf { it > 0 } ?: (stats?.totalHotspotBytes ?: 0L)
+    val cellularBytes = localTraffic?.cellularBytes?.takeIf { it > 0 } ?: (stats?.totalCellularBytes ?: 0L)
 
     LazyColumn(
         modifier = Modifier

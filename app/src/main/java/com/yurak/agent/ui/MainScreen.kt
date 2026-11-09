@@ -14,7 +14,9 @@ import androidx.compose.ui.unit.dp
 import com.yurak.agent.AppContainer
 import com.yurak.agent.data.*
 import com.yurak.agent.ui.usage.AppUsageScreen
+import com.yurak.agent.usage.DayTrafficSummary
 import com.yurak.agent.usage.DayUsageSummary
+import com.yurak.agent.usage.LocalNetworkStatsManager
 import com.yurak.agent.usage.LocalUsageStatsManager
 import com.yurak.agent.util.TashkentTime
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +57,9 @@ fun MainScreen(
     val localUsageManager = remember { LocalUsageStatsManager(context) }
     var localTodaySummary by remember { mutableStateOf<DayUsageSummary?>(null) }
 
+    val localTrafficManager = remember { LocalNetworkStatsManager(context) }
+    var localTodayTraffic by remember { mutableStateOf<DayTrafficSummary?>(null) }
+
     val todayStr = remember { TashkentTime.today().format(DateTimeFormatter.ISO_LOCAL_DATE) }
     val weekAgoStr = remember { TashkentTime.today().minusDays(6).format(DateTimeFormatter.ISO_LOCAL_DATE) }
 
@@ -63,8 +68,10 @@ fun MainScreen(
         scope.launch {
             withContext(Dispatchers.IO) {
                 val summary = localUsageManager.getDayStats(TashkentTime.today())
+                val traffic = localTrafficManager.getDayTraffic(TashkentTime.today())
                 withContext(Dispatchers.Main) {
                     localTodaySummary = summary
+                    localTodayTraffic = traffic
                 }
             }
             if (apiToken.isNotEmpty()) {
@@ -181,6 +188,7 @@ fun MainScreen(
                 MainTab.DASHBOARD -> DashboardScreen(
                     stats = dailyStats,
                     localUsage = localTodaySummary,
+                    localTraffic = localTodayTraffic,
                     device = currentDevice,
                     userEmail = userEmail,
                     hasUsageAccess = hasUsageAccess,
@@ -202,6 +210,7 @@ fun MainScreen(
                 MainTab.DATA_USAGE -> DataUsageScreen(
                     dailyStats = dailyStats,
                     rangeStats = rangeStats,
+                    localTraffic = localTodayTraffic,
                     syncing = syncing,
                     onSyncNow = onSyncNow,
                 )
