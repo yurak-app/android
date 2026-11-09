@@ -24,25 +24,18 @@ data class ReadResult(
     val newOpenSegment: OpenSegment?,
 )
 
-/** Segments shorter than this aren't worth a row — mirrors MIN_SEGMENT_SECONDS on the
- * Windows agent and the extension. */
+/** Segments shorter than this aren't worth a row. */
 private const val MIN_SEGMENT_MS = 1_000L
 
-/** If a segment has been open this long without closing (an app left running for hours,
- * or several worker runs in a row that never saw it end), force a checkpoint split —
- * same idea as the Windows agent's ForegroundWindowTracker.MaxSegmentDuration, just
- * evaluated once per periodic read instead of continuously. Bounds how much a single
- * "session" can silently span (a midnight boundary, a crash) rather than how often a
- * genuinely continuous stretch gets chopped up — 30 min is generous on purpose. */
+/** Max segment duration before forcing a checkpoint split. */
 private const val MAX_SEGMENT_MS = 30 * 60 * 1000L
 
 /**
  * Reconstructs foreground-app segments and lock/unlock transitions from Android's own
- * usage-event log — the Android equivalent of the Windows agent's ForegroundWindowTracker,
- * but reading a log the OS already kept instead of polling in real time (see the Android
- * README for why this needs no foreground service). Pure-ish: takes the previous run's
- * state in, returns the next state out; SyncWorker is the only thing that actually persists
- * it (TrackingState) or enqueues the result (PendingEventDao).
+ * usage-event log, exactly mirroring Digital Wellbeing and LocalUsageStatsManager:
+ * - Excludes keyboards, system UI, launchers, and system packages from app usage.
+ * - Handles MOVE_TO_BACKGROUND / ACTIVITY_PAUSED to cleanly close segments.
+ * - Emits discrete lock/unlock transitions on screen-off / lock.
  */
 class UsageEventReader(
     private val usageStatsManager: UsageStatsManager,
@@ -53,6 +46,22 @@ class UsageEventReader(
         packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
     }
 
+    /**
+     * System packages that are NOT user applications (keyboards, system UI, launchers).
+     * Excluded to match Android Digital Wellbeing exactly.
+     */
+    private val excludedPackages = setOf(
+        "com.android.systemui",
+        "com.google.android.inputmethod.latin",
+        "com.touchtype.swiftkey",
+        "com.google.android.apps.nexuslauncher",
+        "com.miui.home",
+        "com.android.launcher3",
+        "com.google.android.gms",
+        "com.google.android.gsf",
+        "android",
+    )
+
     fun read(previousOpen: OpenSegment?, sinceMs: Long, nowMs: Long): ReadResult {
         val events = usageStatsManager.queryEvents(sinceMs, nowMs)
         val event = UsageEvents.Event()
@@ -62,6 +71,12 @@ class UsageEventReader(
 
         var open = previousOpen
         var checkpoint = sinceMs
+
+        fun addTransition(kind: String, atMs: Long) {
+            if (transitions.lastOrNull()?.kind != kind) {
+                transitions += SystemTransition(kind, atMs)
+            }
+        }
 
         fun closeOpen(atMs: Long) {
             val current = open ?: return
@@ -82,41 +97,37 @@ class UsageEventReader(
             checkpoint = event.timeStamp
 
             when (event.eventType) {
-                // MOVE_TO_FOREGROUND (not the newer ACTIVITY_RESUMED alias, same underlying
-                // value): available since API 21, comfortably below this app's minSdk 28,
-                // where ACTIVITY_RESUMED wasn't introduced until API 29.
+                // MOVE_TO_FOREGROUND / ACTIVITY_RESUMED (same value: 1)
                 UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                    val pkg = normalizePackage(event.packageName)
-                    if (open?.packageName != pkg) {
+                    val pkg = event.packageName
+                    if (pkg != null && pkg != launcherPackage && pkg !in excludedPackages) {
+                        if (open?.packageName != pkg) {
+                            closeOpen(event.timeStamp)
+                            open = OpenSegment(pkg, event.timeStamp, isSessionStart = true)
+                        }
+                    } else if (pkg == launcherPackage || pkg in excludedPackages) {
                         closeOpen(event.timeStamp)
-                        // Always a fresh session here: either a genuinely different app, or
-                        // the same app resuming after `open` was cleared by a screen-off
-                        // below — either way this is a new open, never a continuation (the
-                        // "continuation" case — the same app, no lock in between — is the
-                        // branch that's skipped entirely, just below).
-                        open = OpenSegment(pkg, event.timeStamp, isSessionStart = true)
                     }
-                    // Same package resuming again (an internal activity-to-activity
-                    // navigation within one app) is a no-op — the segment just continues;
-                    // ACTIVITY_PAUSED is deliberately not handled at all, for this reason.
                 }
-                UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                // MOVE_TO_BACKGROUND / ACTIVITY_PAUSED (same value: 2)
+                UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                    val pkg = event.packageName
+                    if (pkg != null && pkg == open?.packageName) {
+                        closeOpen(event.timeStamp)
+                    }
+                }
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE,
+                UsageEvents.Event.KEYGUARD_SHOWN -> {
                     closeOpen(event.timeStamp)
-                    transitions += SystemTransition("lock", event.timeStamp)
+                    addTransition("lock", event.timeStamp)
                 }
+                UsageEvents.Event.SCREEN_INTERACTIVE,
                 UsageEvents.Event.KEYGUARD_HIDDEN -> {
-                    transitions += SystemTransition("unlock", event.timeStamp)
+                    addTransition("unlock", event.timeStamp)
                 }
-                // SCREEN_INTERACTIVE and KEYGUARD_SHOWN are deliberately not separately
-                // emitted: "unlock" means genuinely usable again (keyguard dismissed, not
-                // just the screen waking up to a lock screen), and "lock" already covers
-                // screen-off regardless of whether the keyguard was ever shown.
             }
         }
 
-        // A segment left open past the whole read window: still genuinely open (nothing
-        // closed it), but checkpoint it if it's been going long enough that this is really
-        // a crash/midnight-boundary concern, not just "still using the same app".
         open?.let { current ->
             if (nowMs - current.startedAtMs >= MAX_SEGMENT_MS) {
                 closeOpen(nowMs)
@@ -127,16 +138,11 @@ class UsageEventReader(
         return ReadResult(closed, transitions, checkpoint, open)
     }
 
-    private fun normalizePackage(packageName: String): String =
-        if (packageName == launcherPackage) "home" else packageName
-
-    private fun displayNameFor(packageName: String): String? {
-        if (packageName == "home") return "Home screen"
-        return try {
+    private fun displayNameFor(packageName: String): String? =
+        try {
             val info = packageManager.getApplicationInfo(packageName, 0)
             packageManager.getApplicationLabel(info)?.toString()
         } catch (e: PackageManager.NameNotFoundException) {
-            null // uninstalled since, or a system component with no launchable app info
+            null
         }
-    }
 }

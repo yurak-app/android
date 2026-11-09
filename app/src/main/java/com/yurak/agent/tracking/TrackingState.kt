@@ -1,6 +1,7 @@
 package com.yurak.agent.tracking
 
 import android.content.Context
+import com.yurak.agent.util.TashkentTime
 
 /** The foreground segment [UsageEventReader] hadn't seen the end of yet, as of the last
  * checkpoint — persisted so a later worker run (a fresh process, most likely) can pick up
@@ -20,17 +21,22 @@ data class OpenSegment(
 class TrackingState(context: Context) {
     private val prefs = context.getSharedPreferences("yurak_tracking_state", Context.MODE_PRIVATE)
 
-    /** The last usage-event timestamp actually consumed. Defaults to one hour before now on
-     * a fresh install — not to epoch, which would mean trying to read the device's *entire*
-     * usage history on first run. */
-    fun lastCheckpointMs(): Long = prefs.getLong(KEY_CHECKPOINT, System.currentTimeMillis() - ONE_HOUR_MS)
+    /** The last usage-event timestamp actually consumed. Defaults to start of today (UTC+5) on
+     * a fresh install so today's full usage is captured. */
+    fun lastCheckpointMs(): Long {
+        val defaultStart = TashkentTime.startOfDayMs(TashkentTime.today())
+        return prefs.getLong(KEY_CHECKPOINT, defaultStart)
+    }
 
     fun setLastCheckpointMs(value: Long) {
         prefs.edit().putLong(KEY_CHECKPOINT, value).apply()
     }
 
-    /** The last traffic query timestamp consumed. */
-    fun lastTrafficCheckpointMs(): Long = prefs.getLong(KEY_TRAFFIC_CHECKPOINT, System.currentTimeMillis() - ONE_HOUR_MS)
+    /** The last traffic query timestamp consumed. Defaults to start of today (UTC+5). */
+    fun lastTrafficCheckpointMs(): Long {
+        val defaultStart = TashkentTime.startOfDayMs(TashkentTime.today())
+        return prefs.getLong(KEY_TRAFFIC_CHECKPOINT, defaultStart)
+    }
 
     fun setLastTrafficCheckpointMs(value: Long) {
         prefs.edit().putLong(KEY_TRAFFIC_CHECKPOINT, value).apply()
@@ -56,8 +62,7 @@ class TrackingState(context: Context) {
         editor.apply()
     }
 
-    /** Wipes everything — used on logout, matching the Windows agent's/extension's own
-     * "the next login starts clean" behavior. */
+    /** Wipes everything — used on logout. */
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -68,6 +73,5 @@ class TrackingState(context: Context) {
         const val KEY_OPEN_PACKAGE = "open_package"
         const val KEY_OPEN_STARTED_AT = "open_started_at_ms"
         const val KEY_OPEN_SESSION_START = "open_session_start"
-        const val ONE_HOUR_MS = 60 * 60 * 1000L
     }
 }
