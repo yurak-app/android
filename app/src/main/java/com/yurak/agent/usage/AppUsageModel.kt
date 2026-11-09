@@ -8,10 +8,6 @@ enum class UsagePeriod {
     KUN, HAFTA, OY
 }
 
-enum class AppFilter {
-    BARCHASI, CHEKLANGAN, CHEKLANMAGAN, MOBILE, DESKTOP
-}
-
 data class AppCategoryBadge(
     val label: String,
     val containerColor: Color,
@@ -25,8 +21,6 @@ data class RealAppUsage(
     val sessionCount: Int = 1,
     val iconBitmap: ImageBitmap? = null,
     val categoryBadge: AppCategoryBadge,
-    val isRestricted: Boolean = false,
-    val isNearLimit: Boolean = false,
     val platform: String = "android",
 )
 
@@ -47,4 +41,3 @@ data class WeekUsageSummary(
     val totalSeconds: Long,
     val days: List<DayUsageSummary>,
 )
-

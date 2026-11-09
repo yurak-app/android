@@ -231,8 +231,6 @@ class LocalUsageStatsManager(private val context: Context) {
                     sessionCount = sessions,
                     iconBitmap = iconBitmap,
                     categoryBadge = badge,
-                    isRestricted = badge.label == "Cheklangan",
-                    isNearLimit = badge.label == "Cheklovga yaqin",
                     platform = "android",
                 )
             )

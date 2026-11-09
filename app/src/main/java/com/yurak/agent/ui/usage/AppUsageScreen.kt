@@ -52,7 +52,6 @@ fun AppUsageScreen(
     }
     var selectedDayIndex by remember { mutableStateOf(initialDayIdx) }
 
-    var filter by remember { mutableStateOf(AppFilter.BARCHASI) }
     var searchQuery by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
 
@@ -76,18 +75,11 @@ fun AppUsageScreen(
 
     val rawApps = selectedDay?.apps ?: emptyList()
 
-    val filteredApps = remember(rawApps, filter, searchQuery) {
-        rawApps.filter { app ->
-            val matchesFilter = when (filter) {
-                AppFilter.BARCHASI, AppFilter.MOBILE -> true
-                AppFilter.CHEKLANGAN -> app.isRestricted || app.isNearLimit
-                AppFilter.CHEKLANMAGAN -> !app.isRestricted && !app.isNearLimit
-                AppFilter.DESKTOP -> false
-            }
-            val matchesQuery = searchQuery.isBlank() ||
-                app.appName.contains(searchQuery, ignoreCase = true) ||
+    val filteredApps = remember(rawApps, searchQuery) {
+        if (searchQuery.isBlank()) rawApps
+        else rawApps.filter { app ->
+            app.appName.contains(searchQuery, ignoreCase = true) ||
                 app.packageName.contains(searchQuery, ignoreCase = true)
-            matchesFilter && matchesQuery
         }
     }
 
@@ -229,16 +221,7 @@ fun AppUsageScreen(
                 )
             }
 
-            // 6. Filter Chips
-            item {
-                AppUsageFilterChips(
-                    selectedFilter = filter,
-                    onFilterSelected = { filter = it },
-                    allApps = rawApps,
-                )
-            }
-
-            // 7. Real App List Items
+            // 6. Real App List Items
             if (loading) {
                 item {
                     Box(
