@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.READ_NETWORK_USAGE_HISTORY"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- "Usage Access" — the load-bearing permission. Can't be requested via a normal
+         runtime dialog; the app deep-links to Settings.ACTION_USAGE_ACCESS_SETTINGS and
+         the user grants it manually. See tracking/UsageAccess.kt. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- For the (optional, not yet wired up) goal-limit notification — normal runtime
+         prompt, Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Deliberately NOT requesting RECEIVE_BOOT_COMPLETED: WorkManager's own periodic-work
+         scheduling already survives a reboot on its own (it re-registers via its own
+         internally-merged receiver), no action needed from this app. -->
+
+    <application
+        android:name=".YurakApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.Yurak"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: lets the app reach a plain http:// backend during
+             development (an emulator's host-loopback address, or a LAN IP), matching the
+             Windows agent's http://localhost:4000 default. Tighten this — or scope a
+             network security config to just your dev host — once this points at a real
+             https deployment. -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yurak">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

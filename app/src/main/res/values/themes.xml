@@ -1,0 +1,5 @@
+<resources>
+    <!-- Compose (via YurakTheme.kt) draws all real UI — this is just the manifest-required
+         base theme for the moment before Compose content sets in and the system splash. -->
+    <style name="Theme.Yurak" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
