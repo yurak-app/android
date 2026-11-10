@@ -12,9 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.yurak.agent.tracking.SyncWorker
-import com.yurak.agent.ui.LoginScreen
 import com.yurak.agent.ui.MainScreen
 import com.yurak.agent.ui.YurakTheme
+import com.yurak.agent.ui.auth.LoginScreen
 
 /** The app's one screen host — swaps between LoginScreen and MainScreen with BottomNavigation */
 class MainActivity : ComponentActivity() {

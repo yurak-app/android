@@ -17,12 +17,16 @@ android {
         minSdk = 28
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Use debug signing by default so the GitHub release APK can be directly
+            // downloaded and installed on user devices without requiring a custom keystore.
+            // If a production release keystore is configured later, it can override this.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
